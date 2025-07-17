@@ -1,0 +1,2 @@
+sudo docker run -d   --name mosquitto   --restart always   -p 1883:1883   -p 9001:9001   -v ~/docker/mosquitto/config:/mosquitto/config   -v ~/docker/mosquitto/data:/mosquitto/data   -v ~/docker/mosquitto/log:/mosquitto/log   eclipse-mosquitto
+docker run -d   --name homeassistant   --privileged   --restart=unless-stopped   -p 8123:8123   -v /home/${USER}/homeassistant_config:/config   -e TZ=Asia/Tbilisi   ghcr.io/home-assistant/home-assistant:stable
