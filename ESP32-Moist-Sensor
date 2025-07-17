@@ -1,0 +1,80 @@
+#include <WiFi.h>
+#include <WebServer.h>
+
+// --- Wi-Fi Settings ---
+const char* ssid = "Mynetwork";         // Your Wi-Fi network name (SSID)
+const char* password = "Mypassword";   // Your Wi-Fi network password
+
+// --- Moisture Sensor Settings ---
+const int moistureSensorPin = 34; // HW-103 moisture sensor connected to GPIO34
+int dryValue = 4095;              // Value for completely dry soil (from your calibration)
+int wetValue = 1300;              // Value for very wet soil (from your calibration)
+
+// --- Initialize Web Server on port 80 (standard HTTP port) ---
+WebServer server(80);
+
+void setup() {
+  Serial.begin(115200);
+  Serial.println("\n");
+  Serial.println("Initializing ESP32 and connecting to Wi-Fi...");
+
+  // --- Connect to Wi-Fi ---
+  WiFi.begin(ssid, password);
+  Serial.print("Connecting to Wi-Fi");
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("\n");
+  Serial.println("Successfully connected to Wi-Fi!");
+  Serial.print("ESP32 IP Address: ");
+  Serial.println(WiFi.localIP()); // Print ESP32's IP address
+
+  // --- Set up route for the root URL "/" ---
+  server.on("/", handleRoot); // When a user accesses the IP address, the handleRoot function is called
+
+  // --- Start the web server ---
+  server.begin();
+  Serial.println("Web server started!");
+  Serial.println("Open your browser and navigate to the IP address shown above.");
+}
+
+void loop() {
+  server.handleClient(); // Handle incoming web server requests
+  // Other tasks in loop() will run in parallel
+}
+
+// --- Function to handle requests for the root URL "/" ---
+void handleRoot() {
+  int rawValue = analogRead(moistureSensorPin); // Read raw moisture value
+  float percentage = map(rawValue, dryValue, wetValue, 0, 100);
+  percentage = constrain(percentage, 0, 100); // Constrain value from 0 to 100%
+
+  // --- Generate HTML page ---
+  String html = "<!DOCTYPE html>";
+  html += "<html>";
+  html += "<head>";
+  html += "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">";
+  html += "<title>Soil Moisture</title>"; // Page title
+  html += "<style>";
+  html += "body { font-family: Arial, sans-serif; text-align: center; margin-top: 50px; }";
+  html += "h1 { color: #333; }";
+  html += ".moisture-value { font-size: 4em; color: #007bff; font-weight: bold; }";
+  html += ".timestamp { font-size: 0.8em; color: #666; margin-top: 20px; }";
+  html += "</style>";
+  html += "</head>";
+  html += "<body>";
+  html += "<h1>Current Soil Moisture:</h1>"; // Main heading
+  html += "<p class=\"moisture-value\">";
+  html += String(percentage, 1); // Display percentage with one decimal place
+  html += "%</p>";
+  // Add last updated time (for clarity)
+  html += "<p class=\"timestamp\">Uptime: ";
+  html += String(millis() / 1000); // Time in seconds since ESP32 started
+  html += " sec ago</p>";
+  html += "</body>";
+  html += "</html>";
+
+  // Send the HTML page to the client
+  server.send(200, "text/html", html);
+}
