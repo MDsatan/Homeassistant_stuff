@@ -1,0 +1,168 @@
+#include <WiFi.h>
+#include <WebServer.h> // Using the built-in WebServer library for ESP32
+
+// --- Wi-Fi Settings ---
+// !!! IMPORTANT: REPLACE WITH YOUR HOME WI-FI NETWORK NAME AND PASSWORD !!!
+const char* ssid = "Mynetwork";         // Your Wi-Fi network name (SSID)
+const char* password = "Mypassword";   // Your Wi-Fi network password
+
+
+// --- GPIO Settings ---
+const int pumpPin = 16; // GPIO pin connected to the relay's IN pin
+
+// --- State Variables ---
+unsigned long pumpActivationTime = 0;
+const unsigned long pumpRunDuration = 3000; // 3000 milliseconds = 3 seconds
+bool pumpActive = false; // Flag indicating if the pump is currently running
+
+// --- Server Instance ---
+WebServer server(80); // Web server on port 80
+
+// --- HTML Web Page Code ---
+const char index_html[] PROGMEM = R"rawliteral(
+<!DOCTYPE HTML><html>
+<head>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pump Control</title>
+  <style>
+    body { font-family: Arial; text-align: center; margin:auto; padding-top: 50px;}
+    .button {
+      background-color: #4CAF50; /* Green */
+      border: none;
+      color: white;
+      padding: 25px 50px;
+      text-align: center;
+      text-decoration: none;
+      display: inline-block;
+      font-size: 30px;
+      margin: 4px 2px;
+      cursor: pointer;
+      border-radius: 12px;
+    }
+    .button:active {
+      background-color: #3e8e41;
+    }
+  </style>
+</head>
+<body>
+  <h1>Pump Control</h1>
+  <p><button class="button" onclick="activatePump()">Activate Pump</button></p>
+  <p>Status: <span id="pumpStatus">Stopped</span></p>
+
+  <script>
+    function activatePump() {
+      var xhttp = new XMLHttpRequest();
+      xhttp.onreadystatechange = function() {
+        if (this.readyState == 4 && this.status == 200) {
+          document.getElementById("pumpStatus").innerHTML = "Pump running (3 sec.)";
+          setTimeout(function(){
+            document.getElementById("pumpStatus").innerHTML = "Stopped";
+          }, 3000);
+        }
+      };
+      xhttp.open("GET", "/activate", true);
+      xhttp.send();
+    }
+  </script>
+</body>
+</html>)rawliteral";
+
+// --- Function to turn on the pump ---
+void turnOnPump() {
+  Serial.println("--- Entering turnOnPump() ---");
+  if (!pumpActive) {
+    Serial.println("Pump is NOT active. Activating now (setting LOW for active-low relay)...");
+    // !!! CHANGED LOGIC: For active-low relay, LOW activates (turns ON) the pump. !!!
+    digitalWrite(pumpPin, LOW);
+    pumpActivationTime = millis();
+    pumpActive = true;
+    Serial.println("Pump TURNED ON (pumpActive set to true).");
+  } else {
+    Serial.println("Pump is already active. Not reactivating.");
+  }
+  Serial.println("--- Exiting turnOnPump() ---");
+}
+
+// --- Function to turn off the pump ---
+void turnOffPump() {
+  Serial.println("--- Entering turnOffPump() ---");
+  if (pumpActive) {
+    Serial.println("Pump IS active. Deactivating now (setting HIGH for active-low relay)...");
+    // !!! CHANGED LOGIC: For active-low relay, HIGH deactivates (turns OFF) the pump. !!!
+    digitalWrite(pumpPin, HIGH);
+    pumpActive = false;
+    Serial.println("Pump TURNED OFF (pumpActive set to false).");
+  } else {
+    Serial.println("Pump is already inactive. Not deactivating.");
+  }
+  Serial.println("--- Exiting turnOffPump() ---");
+}
+
+// --- Handler for the root URL ("/") ---
+void handleRoot() {
+  Serial.println("Received request for / (root) URL.");
+  server.send(200, "text/html", index_html);
+  Serial.println("Sent index.html.");
+}
+
+// --- Handler for the "/activate" URL ---
+void handleActivate() {
+  Serial.println("Received request for /activate URL.");
+  turnOnPump(); // Call the function to activate the pump
+  server.send(200, "text/plain", "Pump activated for 3 seconds!");
+  Serial.println("Sent activation response.");
+}
+
+void setup() {
+  Serial.begin(115200);
+  Serial.println("\n--- ESP32 Setup Starting ---");
+
+  // --- Initialize pump pin ---
+  pinMode(pumpPin, OUTPUT);
+  // !!! CHANGED LOGIC: Set to HIGH to ensure pump is OFF (deactivated) immediately on startup for active-low relay !!!
+  digitalWrite(pumpPin, HIGH);
+  pumpActive = false; // Confirm state variable is also off
+  Serial.println("Pump pin initialized to HIGH (OFF for active-low relay). pumpActive = false.");
+
+  // --- Wi-Fi Mode Configuration ---
+  Serial.print("Connecting to Wi-Fi. SSID: ");
+  Serial.println(ssid);
+  WiFi.begin(ssid, password);
+
+  int attempt = 0;
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(1000);
+    Serial.print(".");
+    attempt++;
+    if (attempt > 20) { // Timeout after 20 seconds
+      Serial.println("\nFailed to connect to Wi-Fi. Please check SSID/Password.");
+      break;
+    }
+  }
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.println("\nConnected to Wi-Fi.");
+    // !!! Ensure IP Address is printed here !!!
+    Serial.print("IP Address: ");
+    Serial.println(WiFi.localIP());
+  } else {
+    Serial.println("Wi-Fi not connected. Web server may not be accessible.");
+  }
+
+  // --- Web Server Setup ---
+  server.on("/", handleRoot);
+  server.on("/activate", handleActivate);
+
+  server.begin();
+  Serial.println("Web server started. Ready for connections.");
+  Serial.println("--- ESP32 Setup Complete ---");
+}
+
+void loop() {
+  server.handleClient(); // Process incoming HTTP requests
+
+  // Check if the pump is active and its predefined run time has expired
+  if (pumpActive && (millis() - pumpActivationTime >= pumpRunDuration)) {
+    Serial.println("Pump run duration expired. Calling turnOffPump().");
+    turnOffPump();
+  }
+}
