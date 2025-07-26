@@ -4,8 +4,8 @@
 
 // --- Wi-Fi Settings ---
 // !!! IMPORTANT: REPLACE WITH YOUR HOME WI-FI NETWORK NAME AND PASSWORD !!!
-const char* ssid = "YourHomeWiFiName";
-const char* password = "YourHomeWiFiPassword";
+const char* ssid = "WiFiNetworkName"; // Your Wi-Fi network name (SSID)
+const char* password = "WiFiPassword"; // Your Wi-Fi password
 
 // --- GPIO Settings ---
 const int pumpPin = 16; // GPIO pin connected to the relay's IN pin
@@ -19,9 +19,9 @@ bool pumpActive = false; // Flag indicating if the pump is currently running
 WebServer server(80); // Web server on port 80
 
 // --- Watchdog Timer Settings ---
-// Define the timeout for the watchdog (in seconds)
+// Define the timeout for the watchdog (in milliseconds)
 // If loop() doesn't "feed" the watchdog within this time, ESP32 will reset.
-const int WDT_TIMEOUT_SECONDS = 10; 
+const uint32_t WDT_TIMEOUT_MS = 10000; // 10 seconds in milliseconds
 
 // --- HTML Web Page Code ---
 const char index_html[] PROGMEM = R"rawliteral(
@@ -149,8 +149,13 @@ void setup() {
   Serial.println("\n--- ESP32 Setup Starting ---");
 
   // --- Initialize Watchdog Timer ---
-  // Enable the watchdog timer with the specified timeout
-  esp_task_wdt_init(WDT_TIMEOUT_SECONDS, true); // true for panic on timeout
+  // Define the WDT configuration struct
+  esp_task_wdt_config_t wdt_config = {
+    .timeout_ms = WDT_TIMEOUT_MS,
+    .trigger_panic = true // Panic on timeout (reboot)
+  };
+  // Initialize the watchdog timer with the configuration
+  esp_task_wdt_init(&wdt_config);
   esp_task_wdt_add(NULL); // Add the current task (loop task) to the WDT
 
   // --- Initialize pump pin ---
