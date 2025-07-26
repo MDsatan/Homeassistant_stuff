@@ -1,11 +1,11 @@
 #include <WiFi.h>
-#include <WebServer.h> // Using the built-in WebServer library for ESP32
+#include <WebServer.h>
+#include <esp_task_wdt.h> // Library for Watchdog Timer
 
 // --- Wi-Fi Settings ---
 // !!! IMPORTANT: REPLACE WITH YOUR HOME WI-FI NETWORK NAME AND PASSWORD !!!
-const char* ssid = "Mynetwork";         // Your Wi-Fi network name (SSID)
-const char* password = "Mypassword";   // Your Wi-Fi network password
-
+const char* ssid = "YourHomeWiFiName";
+const char* password = "YourHomeWiFiPassword";
 
 // --- GPIO Settings ---
 const int pumpPin = 16; // GPIO pin connected to the relay's IN pin
@@ -17,6 +17,11 @@ bool pumpActive = false; // Flag indicating if the pump is currently running
 
 // --- Server Instance ---
 WebServer server(80); // Web server on port 80
+
+// --- Watchdog Timer Settings ---
+// Define the timeout for the watchdog (in seconds)
+// If loop() doesn't "feed" the watchdog within this time, ESP32 will reset.
+const int WDT_TIMEOUT_SECONDS = 10; 
 
 // --- HTML Web Page Code ---
 const char index_html[] PROGMEM = R"rawliteral(
@@ -72,7 +77,6 @@ void turnOnPump() {
   Serial.println("--- Entering turnOnPump() ---");
   if (!pumpActive) {
     Serial.println("Pump is NOT active. Activating now (setting LOW for active-low relay)...");
-    // !!! CHANGED LOGIC: For active-low relay, LOW activates (turns ON) the pump. !!!
     digitalWrite(pumpPin, LOW);
     pumpActivationTime = millis();
     pumpActive = true;
@@ -88,7 +92,6 @@ void turnOffPump() {
   Serial.println("--- Entering turnOffPump() ---");
   if (pumpActive) {
     Serial.println("Pump IS active. Deactivating now (setting HIGH for active-low relay)...");
-    // !!! CHANGED LOGIC: For active-low relay, HIGH deactivates (turns OFF) the pump. !!!
     digitalWrite(pumpPin, HIGH);
     pumpActive = false;
     Serial.println("Pump TURNED OFF (pumpActive set to false).");
@@ -113,40 +116,52 @@ void handleActivate() {
   Serial.println("Sent activation response.");
 }
 
-void setup() {
-  Serial.begin(115200);
-  Serial.println("\n--- ESP32 Setup Starting ---");
-
-  // --- Initialize pump pin ---
-  pinMode(pumpPin, OUTPUT);
-  // !!! CHANGED LOGIC: Set to HIGH to ensure pump is OFF (deactivated) immediately on startup for active-low relay !!!
-  digitalWrite(pumpPin, HIGH);
-  pumpActive = false; // Confirm state variable is also off
-  Serial.println("Pump pin initialized to HIGH (OFF for active-low relay). pumpActive = false.");
-
-  // --- Wi-Fi Mode Configuration ---
+// --- Function to connect to Wi-Fi ---
+void connectToWiFi() {
   Serial.print("Connecting to Wi-Fi. SSID: ");
   Serial.println(ssid);
+  WiFi.mode(WIFI_STA); // Set Wi-Fi to station mode
   WiFi.begin(ssid, password);
 
   int attempt = 0;
   while (WiFi.status() != WL_CONNECTED) {
-    delay(1000);
+    delay(500); // Shorter delay for faster reconnection attempts
     Serial.print(".");
     attempt++;
-    if (attempt > 20) { // Timeout after 20 seconds
-      Serial.println("\nFailed to connect to Wi-Fi. Please check SSID/Password.");
-      break;
+    if (attempt > 40) { // Timeout after 20 seconds (40 * 0.5s)
+      Serial.println("\nFailed to connect to Wi-Fi. Retrying...");
+      WiFi.disconnect(); // Disconnect before retrying
+      delay(1000);
+      WiFi.begin(ssid, password); // Try again
+      attempt = 0; // Reset attempt counter
     }
+    // Feed the watchdog during connection attempts to prevent reset
+    esp_task_wdt_reset(); 
   }
-  if (WiFi.status() == WL_CONNECTED) {
-    Serial.println("\nConnected to Wi-Fi.");
-    // !!! Ensure IP Address is printed here !!!
-    Serial.print("IP Address: ");
-    Serial.println(WiFi.localIP());
-  } else {
-    Serial.println("Wi-Fi not connected. Web server may not be accessible.");
-  }
+  Serial.println("\nConnected to Wi-Fi.");
+  Serial.print("IP Address: ");
+  Serial.println(WiFi.localIP());
+}
+
+
+void setup() {
+  Serial.begin(115200);
+  Serial.println("\n--- ESP32 Setup Starting ---");
+
+  // --- Initialize Watchdog Timer ---
+  // Enable the watchdog timer with the specified timeout
+  esp_task_wdt_init(WDT_TIMEOUT_SECONDS, true); // true for panic on timeout
+  esp_task_wdt_add(NULL); // Add the current task (loop task) to the WDT
+
+  // --- Initialize pump pin ---
+  pinMode(pumpPin, OUTPUT);
+  // Set to HIGH to ensure pump is OFF (deactivated) immediately on startup for active-low relay
+  digitalWrite(pumpPin, HIGH);
+  pumpActive = false; // Confirm state variable is also off
+  Serial.println("Pump pin initialized to HIGH (OFF for active-low relay). pumpActive = false.");
+
+  // --- Wi-Fi Configuration ---
+  connectToWiFi(); // Initial Wi-Fi connection
 
   // --- Web Server Setup ---
   server.on("/", handleRoot);
@@ -158,6 +173,16 @@ void setup() {
 }
 
 void loop() {
+  // Feed the watchdog regularly to prevent reset.
+  // This must be called frequently enough (e.g., at least once every WDT_TIMEOUT_SECONDS).
+  esp_task_wdt_reset(); 
+
+  // Check Wi-Fi status and reconnect if disconnected
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("Wi-Fi disconnected. Attempting to reconnect...");
+    connectToWiFi();
+  }
+
   server.handleClient(); // Process incoming HTTP requests
 
   // Check if the pump is active and its predefined run time has expired
