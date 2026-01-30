@@ -42,7 +42,7 @@ output:
         open_drain: true
     id: relay_pin
     # Set to 'false' for Active-High relay modules
-    inverted: false 
+    inverted: true
 
 # 2. Watering Duration Slider
 number:
@@ -58,7 +58,7 @@ number:
     icon: "mdi:timer-sand"
     mode: slider
 
-# 3. Virtual Switch for UI and Voice Assistants
+# 3. Main Control Switch
 switch:
   - platform: template
     name: "Sprinkler Switch"
@@ -67,43 +67,46 @@ switch:
     turn_on_action:
       - if:
           condition:
-            # Only start if the script is NOT running AND cooldown is NOT active
+            # Check if script is NOT running and NOT in cooldown
             lambda: |-
               return !id(water_cycle_script).is_running() && !id(cooldown_active);
           then:
             - script.execute: water_cycle_script
           else:
-            # If blocked, force the UI switch back to OFF state
+            # If blocked, force the UI switch back to OFF
             - lambda: 'id(sprinkler_logic_switch).publish_state(false);'
             - logger.log: "Execution blocked: Cool-down active or script already running"
     turn_off_action:
       # Manual emergency stop sequence
       - script.stop: water_cycle_script
       - output.turn_off: relay_pin
+      - delay: 50ms
+      - output.turn_off: relay_pin
       - lambda: 'id(sprinkler_logic_switch).publish_state(false);'
 
 # 4. Core Watering Logic Script
 script:
   - id: water_cycle_script
-    mode: single # Ensures the script cannot be restarted while active
+    mode: single 
     then:
-      # --- STEP 1: START ---
+      # --- START ---
       - output.turn_on: relay_pin
       - lambda: 'id(sprinkler_logic_switch).publish_state(true);'
       
-      # --- STEP 2: WAIT (Duration from slider) ---
+      # --- WAIT ---
       - delay: !lambda "return id(water_duration).state * 1000;"
       
-      # --- STEP 3: STOP (Primary) ---
-      - output.turn_off: relay_pin
+      # --- TRIPLE STOP SEQUENCE (To counter EMI/Noise) ---
+      - output.turn_off: relay_pin     # 1st attempt
+      - delay: 100ms
+      - output.turn_off: relay_pin     # 2nd attempt (after spike settles)
       - lambda: 'id(sprinkler_logic_switch).publish_state(false);'
+      - delay: 100ms
+      - output.turn_off: relay_pin     # 3rd attempt (hardware insurance)
       
-      # --- STEP 4: COOLDOWN & EXTRA SAFETY ---
+      # --- COOLDOWN PERIOD ---
       - lambda: 'id(cooldown_active) = true;'
       - logger.log: "Cool-down interval started"
-      
-      # Redundant stop command to ensure relay opens despite EMI/noise
-      - output.turn_off: relay_pin 
       
       - delay: 5s
       
