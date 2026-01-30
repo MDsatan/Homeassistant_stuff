@@ -10,17 +10,28 @@ esphome:
 esp32:
   board: esp32-c3-devkitm-1
 
+# Enable logging to fix the 'logger::Logger' error
+logger:
+  level: DEBUG
+
+# Global variable for the 5-second safety buffer
+globals:
+  - id: cooldown_active
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+
 wifi:
   ssid: "SSID"
-  password: "Pass"
+  password: "pass"
   ap:
     ssid: "Sprinkler Fallback"
 
-captive_portal:
 api:
 ota:
   platform: esphome
 
+# 1. Hardware Output (Relay)
 output:
   - platform: gpio
     pin: 
@@ -29,9 +40,9 @@ output:
         output: true
         open_drain: true
     id: relay_pin
-    # This ensures "Off" in software = "Off" at the pump
     inverted: false 
 
+# 2. Watering Duration Slider
 number:
   - platform: template
     name: "Watering Duration"
@@ -45,25 +56,43 @@ number:
     icon: "mdi:timer-sand"
     mode: slider
 
+# 3. Main Control Switch
 switch:
   - platform: template
     name: "Sprinkler Switch"
     id: sprinkler_logic_switch
     icon: "mdi:water-pump"
     turn_on_action:
-      - script.execute: water_cycle_script
+      - if:
+          condition:
+            lambda: |-
+              return !id(water_cycle_script).is_running() && !id(cooldown_active);
+          then:
+            - script.execute: water_cycle_script
+          else:
+            - lambda: 'id(sprinkler_logic_switch).publish_state(false);'
+            - logger.log: "Execution blocked: Cool-down active or script already running"
     turn_off_action:
       - script.stop: water_cycle_script
       - output.turn_off: relay_pin
       - lambda: 'id(sprinkler_logic_switch).publish_state(false);'
 
+# 4. Watering Cycle Script
 script:
   - id: water_cycle_script
-    # 'single' ignores new commands while the script is already running
     mode: single 
     then:
       - output.turn_on: relay_pin
       - lambda: 'id(sprinkler_logic_switch).publish_state(true);'
+      
       - delay: !lambda "return id(water_duration).state * 1000;"
+      
       - output.turn_off: relay_pin
       - lambda: 'id(sprinkler_logic_switch).publish_state(false);'
+      
+      # Start cool-down interval
+      - lambda: 'id(cooldown_active) = true;'
+      - logger.log: "Cool-down interval started"
+      - delay: 5s
+      - lambda: 'id(cooldown_active) = false;'
+      - logger.log: "Cool-down interval finished"
