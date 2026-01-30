@@ -1,7 +1,6 @@
 esphome:
   name: sprinkler-1
   friendly_name: "Sprinkler"
-  # Forced shutdown on boot to minimize "blips"
   on_boot:
     priority: 1000
     then:
@@ -30,7 +29,8 @@ output:
         output: true
         open_drain: true
     id: relay_pin
-    inverted: false
+    # This ensures "Off" in software = "Off" at the pump
+    inverted: false 
 
 number:
   - platform: template
@@ -59,7 +59,8 @@ switch:
 
 script:
   - id: water_cycle_script
-    mode: restart
+    # 'single' ignores new commands while the script is already running
+    mode: single 
     then:
       - output.turn_on: relay_pin
       - lambda: 'id(sprinkler_logic_switch).publish_state(true);'
