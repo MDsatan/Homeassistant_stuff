@@ -30,7 +30,7 @@ output:
         output: true
         open_drain: true
     id: relay_pin
-    inverted: true
+    inverted: false
 
 number:
   - platform: template
