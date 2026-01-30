@@ -1,27 +1,36 @@
 esphome:
-  name: sprinkler-test
-  friendly_name: "Sprinkler Test"
+  name: sprinkler-1
+  friendly_name: "Sprinkler"
+  # Forced shutdown on boot to minimize "blips"
+  on_boot:
+    priority: 1000
+    then:
+      - output.turn_off: relay_pin
+      - lambda: 'id(sprinkler_logic_switch).publish_state(false);'
 
 esp32:
   board: esp32-c3-devkitm-1
 
-# Впиши свои данные Wi-Fi здесь
 wifi:
-  ssid: "SSID"
-  password: "Password"
-  
+  ssid: "MDnetwork"
+  password: "Cisco123"
   ap:
-    ssid: "Sprinkler-Test Fallback"
+    ssid: "Sprinkler Fallback"
 
 captive_portal:
-
-# Связь с Home Assistant
 api:
-
 ota:
   platform: esphome
 
-# Настройка времени полива (3-12 сек)
+output:
+  - platform: gpio
+    pin: 
+      number: 8
+      mode:
+        output: true
+        open_drain: true
+    id: relay_pin
+
 number:
   - platform: template
     name: "Watering Duration"
@@ -30,37 +39,29 @@ number:
     min_value: 3
     max_value: 12
     step: 1
-    initial_value: 5
+    initial_value: 3
     unit_of_measurement: "sec"
     icon: "mdi:timer-sand"
     mode: slider
 
-# Настройка реле с учетом инверсии
 switch:
-  - platform: gpio
-    pin: 
-      number: 8
-      mode:
-        output: true
-        open_drain: true
-    id: pump_relay
-    name: "Pump"
-    inverted: false
-    restore_mode: ALWAYS_OFF
-
-# Скрипт полива
-script:
-  - id: water_cycle
-    mode: restart 
-    then:
-      - switch.turn_on: pump_relay
-      - delay: !lambda "return id(water_duration).state * 1000;"
-      - switch.turn_off: pump_relay
-
-# Кнопка для запуска из HA
-button:
   - platform: template
-    name: "Start Watering"
-    icon: "mdi:play-circle-outline"
-    on_press:
-      - script.execute: water_cycle
+    name: "Sprinkler Switch"
+    id: sprinkler_logic_switch
+    icon: "mdi:water-pump"
+    turn_on_action:
+      - script.execute: water_cycle_script
+    turn_off_action:
+      - script.stop: water_cycle_script
+      - output.turn_off: relay_pin
+      - lambda: 'id(sprinkler_logic_switch).publish_state(false);'
+
+script:
+  - id: water_cycle_script
+    mode: restart
+    then:
+      - output.turn_on: relay_pin
+      - lambda: 'id(sprinkler_logic_switch).publish_state(true);'
+      - delay: !lambda "return id(water_duration).state * 1000;"
+      - output.turn_off: relay_pin
+      - lambda: 'id(sprinkler_logic_switch).publish_state(false);'
