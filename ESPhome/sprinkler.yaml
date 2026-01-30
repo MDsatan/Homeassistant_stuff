@@ -1,0 +1,66 @@
+esphome:
+  name: sprinkler-test
+  friendly_name: "Sprinkler Test"
+
+esp32:
+  board: esp32-c3-devkitm-1
+
+# Впиши свои данные Wi-Fi здесь
+wifi:
+  ssid: "SSID"
+  password: "Password"
+  
+  ap:
+    ssid: "Sprinkler-Test Fallback"
+
+captive_portal:
+
+# Связь с Home Assistant
+api:
+
+ota:
+  platform: esphome
+
+# Настройка времени полива (3-12 сек)
+number:
+  - platform: template
+    name: "Watering Duration"
+    id: water_duration
+    optimistic: true
+    min_value: 3
+    max_value: 12
+    step: 1
+    initial_value: 5
+    unit_of_measurement: "sec"
+    icon: "mdi:timer-sand"
+    mode: slider
+
+# Настройка реле с учетом инверсии
+switch:
+  - platform: gpio
+    pin: 
+      number: 8
+      mode:
+        output: true
+        open_drain: true
+    id: pump_relay
+    name: "Pump"
+    inverted: false
+    restore_mode: ALWAYS_OFF
+
+# Скрипт полива
+script:
+  - id: water_cycle
+    mode: restart 
+    then:
+      - switch.turn_on: pump_relay
+      - delay: !lambda "return id(water_duration).state * 1000;"
+      - switch.turn_off: pump_relay
+
+# Кнопка для запуска из HA
+button:
+  - platform: template
+    name: "Start Watering"
+    icon: "mdi:play-circle-outline"
+    on_press:
+      - script.execute: water_cycle
