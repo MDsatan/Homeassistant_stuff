@@ -1,53 +1,87 @@
-# Technical Documentation: Smart Irrigation System (ESP32-C3)
+# Technical Documentation: Smart Irrigation System (v2.0)
 
-## 1. System Overview
-This project is an automated water pump controller based on the **ESP32-C3 Super Mini** and a **5V Relay Module**. It is designed to be integrated into Home Assistant via ESPHome, providing a fail-safe mechanism for indoor plant watering.
+## 1. System Architecture
+This project is an IoT-based automated watering system using the **ESP32-C3 Super Mini**. It features a "Fail-Safe" logic design, where the watering process is managed by a timed script, ensuring the pump never stays on indefinitely.
 
-## 2. Component List
-* **Controller:** ESP32-C3 Super Mini.
-* **Actuator:** 5V Single-Channel Relay Module (Low Level Trigger).
-* **Load:** DC Water Pump (3-5V).
-* **Power Source:** 5V via ESP32 USB-C port.
+## 2. Hardware Components
+* **MCU:** ESP32-C3 Super Mini.
+* **Relay:** 5V Single-Channel Relay Module (Low-Level Trigger).
+* **Pump:** 3-5V DC Submersible Pump.
+* **Safety Component:** 10k Ohm Pull-up Resistor (Recommended).
 
-## 3. Wiring Diagram
+## 3. Electrical Connections
 
-### 3.1 Control Logic (Low Voltage)
-Connections between the microcontroller and the relay module.
-
-| ESP32-C3 Pin | Relay Module Pin | Description |
+### 3.1 Control Side (Microcontroller)
+| ESP32-C3 Pin | Relay Pin | Description |
 | :--- | :--- | :--- |
-| **5V (VCC)** | **VCC** | Power for the relay coil (Direct from USB) |
-| **G (GND)** | **GND** | Common Ground |
-| **GPIO 8** | **IN** | Control signal (Configured as Open Drain) |
+| **5V** | **VCC** | Power for relay coil |
+| **G (GND)** | **GND** | Common ground |
+| **GPIO 8** | **IN** | Control signal (Open Drain mode) |
 
-### 3.2 Power Load (High Voltage/Pump)
-The pump's power line is interrupted by the relay to act as a switch. 
+> **Hardware Safety Note:** Connect a **10kΩ resistor** between **GPIO 8** and **5V**. This acts as a Pull-up resistor to keep the relay OFF while the ESP32 is booting or being flashed.
 
-* **Positive Line (+):**
-    * Connect **5V** from ESP32 directly to the **Positive (+)** wire of the pump.
-* **Negative Line (-):**
-    * Connect **G (GND)** from ESP32 to the Relay **COM** (Center terminal).
-    * Connect the **Negative (-)** wire of the pump to the Relay **NO** (Normally Open) terminal.
+### 3.2 Load Side (Power & Pump)
+The system uses the **NO (Normally Open)** terminal to ensure the pump is disconnected by default.
 
-> **Safety Note:** Always use the **NO** terminal. In the event of a power failure or controller reset, the circuit will remain open, preventing accidental flooding.
-
-
+* **Pump (+):** Connected directly to **5V**.
+* **Pump (-):** Connected to Relay **NO**.
+* **Relay COM:** Connected to **G (GND)**.
 
 ---
 
-## 4. Software Configuration (ESPHome)
+## 4. Logical Flow & UI
+The device exposes only two entities to Home Assistant and Google Home to prevent UI clutter:
 
-To ensure the 3.3V logic of the ESP32-C3 can effectively switch the 5V relay coil without "latching" issues, the `open_drain` mode is utilized.
+1.  **Watering Duration (Number Slider):** Sets the cycle length (Default: 3s, Range: 3-12s).
+2.  **Sprinkler Switch (Template Switch):** A virtual toggle that triggers the internal watering script.
+
+### Sequence of Operation:
+1. User toggles the **Sprinkler Switch** to 'ON'.
+2. The `water_cycle_script` starts:
+    * Sets the Switch UI state to 'ON' immediately.
+    * Activates the Relay.
+    * Delays for the duration specified by the slider.
+    * Deactivates the Relay.
+    * Sets the Switch UI state back to 'OFF'.
+
+---
+
+## 5. Firmware Configuration (ESPHome)
 
 ```yaml
-switch:
+# Safety: Ensure pump is OFF immediately upon boot
+on_boot:
+  priority: 1000
+  then:
+    - output.turn_off: relay_pin
+    - lambda: 'id(sprinkler_logic_switch).publish_state(false);'
+
+# Output definition (Hidden from UI)
+output:
   - platform: gpio
     pin: 
       number: 8
       mode:
         output: true
-        open_drain: true  # Essential for 3.3V to 5V signal stability
-    id: pump_relay
-    name: "Water Pump"
-    inverted: false       # Set to match your relay's trigger logic
-    restore_mode: ALWAYS_OFF
+        open_drain: true
+    id: relay_pin
+
+# Timer setting
+number:
+  - platform: template
+    name: "Watering Duration"
+    id: water_duration
+    initial_value: 3
+    # ... (rest of config)
+
+# Virtual switch for UI & Google Home
+switch:
+  - platform: template
+    name: "Sprinkler Switch"
+    id: sprinkler_logic_switch
+    turn_on_action:
+      - script.execute: water_cycle_script
+    turn_off_action:
+      - script.stop: water_cycle_script
+      - output.turn_off: relay_pin
+      - lambda: 'id(sprinkler_logic_switch).publish_state(false);'
