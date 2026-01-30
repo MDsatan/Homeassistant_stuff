@@ -1,7 +1,7 @@
 esphome:
   name: sprinkler-1
   friendly_name: "Sprinkler"
-  # Безопасность: Принудительное выключение реле при загрузке чипа
+  # Safety: Force relay OFF immediately when the chip starts
   on_boot:
     priority: 1000
     then:
@@ -11,11 +11,11 @@ esphome:
 esp32:
   board: esp32-c3-devkitm-1
 
-# Логирование для диагностики (Execution blocked и т.д.)
+# Enable logging for diagnostics (e.g., to see "Execution blocked" messages)
 logger:
   level: DEBUG
 
-# Глобальная переменная для кулдауна (защита от спама командами)
+# Global variable to prevent rapid re-triggering (Anti-spam protection)
 globals:
   - id: cooldown_active
     type: bool
@@ -23,8 +23,8 @@ globals:
     initial_value: 'false'
 
 wifi:
-  ssid: "ВАШ_SSID"
-  password: "ВАШ_ПАРОЛЬ"
+  ssid: "YOUR_SSID"
+  password: "YOUR_PASSWORD"
   ap:
     ssid: "Sprinkler Fallback"
 
@@ -32,7 +32,7 @@ api:
 ota:
   platform: esphome
 
-# 1. Выход для реле
+# 1. Hardware Output (Relay)
 output:
   - platform: gpio
     pin: 
@@ -41,10 +41,10 @@ output:
         output: true
         open_drain: true
     id: relay_pin
-    # Выставлено в false для реле с High Level Trigger
+    # Set to 'false' for Active-High relay modules
     inverted: false 
 
-# 2. Слайдер длительности полива
+# 2. Watering Duration Slider
 number:
   - platform: template
     name: "Watering Duration"
@@ -58,7 +58,7 @@ number:
     icon: "mdi:timer-sand"
     mode: slider
 
-# 3. Виртуальный выключатель для интерфейса и Google Home
+# 3. Virtual Switch for UI and Voice Assistants
 switch:
   - platform: template
     name: "Sprinkler Switch"
@@ -67,42 +67,42 @@ switch:
     turn_on_action:
       - if:
           condition:
-            # Запуск только если скрипт НЕ работает и кулдаун НЕ активен
+            # Only start if the script is NOT running AND cooldown is NOT active
             lambda: |-
               return !id(water_cycle_script).is_running() && !id(cooldown_active);
           then:
             - script.execute: water_cycle_script
           else:
-            # Если запуск заблокирован — принудительно возвращаем кнопку в OFF в UI
+            # If blocked, force the UI switch back to OFF state
             - lambda: 'id(sprinkler_logic_switch).publish_state(false);'
             - logger.log: "Execution blocked: Cool-down active or script already running"
     turn_off_action:
-      # Ручной стоп
+      # Manual emergency stop sequence
       - script.stop: water_cycle_script
       - output.turn_off: relay_pin
       - lambda: 'id(sprinkler_logic_switch).publish_state(false);'
 
-# 4. Основной скрипт полива
+# 4. Core Watering Logic Script
 script:
   - id: water_cycle_script
-    mode: single 
+    mode: single # Ensures the script cannot be restarted while active
     then:
-      # --- СТАРТ ---
+      # --- STEP 1: START ---
       - output.turn_on: relay_pin
       - lambda: 'id(sprinkler_logic_switch).publish_state(true);'
       
-      # --- ОЖИДАНИЕ (время из слайдера) ---
+      # --- STEP 2: WAIT (Duration from slider) ---
       - delay: !lambda "return id(water_duration).state * 1000;"
       
-      # --- СТОП (основной) ---
+      # --- STEP 3: STOP (Primary) ---
       - output.turn_off: relay_pin
       - lambda: 'id(sprinkler_logic_switch).publish_state(false);'
       
-      # --- КУЛДАУН И ПОДСТРАХОВКА ---
+      # --- STEP 4: COOLDOWN & EXTRA SAFETY ---
       - lambda: 'id(cooldown_active) = true;'
       - logger.log: "Cool-down interval started"
       
-      # Повторная команда на выключение на случай помех
+      # Redundant stop command to ensure relay opens despite EMI/noise
       - output.turn_off: relay_pin 
       
       - delay: 5s
@@ -110,5 +110,5 @@ script:
       - lambda: 'id(cooldown_active) = false;'
       - logger.log: "Cool-down interval finished"
       
-      # Финальная синхронизация состояния
+      # Final state synchronization
       - lambda: 'id(sprinkler_logic_switch).publish_state(false);'
