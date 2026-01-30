@@ -12,8 +12,8 @@ esp32:
   board: esp32-c3-devkitm-1
 
 wifi:
-  ssid: "MDnetwork"
-  password: "Cisco123"
+  ssid: "SSID"
+  password: "Pass"
   ap:
     ssid: "Sprinkler Fallback"
 
