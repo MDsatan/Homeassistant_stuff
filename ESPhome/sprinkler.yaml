@@ -1,7 +1,7 @@
 esphome:
   name: sprinkler-1
   friendly_name: "Sprinkler"
-  # Safety: Force relay OFF immediately when the chip starts
+  # Safety: Ensure pump is OFF immediately upon boot
   on_boot:
     priority: 1000
     then:
@@ -11,11 +11,11 @@ esphome:
 esp32:
   board: esp32-c3-devkitm-1
 
-# Enable logging for diagnostics (e.g., to see "Execution blocked" messages)
+# Enable logging to monitor execution and blocks
 logger:
   level: DEBUG
 
-# Global variable to prevent rapid re-triggering (Anti-spam protection)
+# Global variable to manage the 5-second safety buffer
 globals:
   - id: cooldown_active
     type: bool
@@ -23,8 +23,13 @@ globals:
     initial_value: 'false'
 
 wifi:
-  ssid: "YOUR_SSID"
-  password: "YOUR_PASSWORD"
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  manual_ip:
+    static_ip: 192.168.100.21
+    gateway: 192.168.100.1
+    subnet: 255.255.255.0
+
   ap:
     ssid: "Sprinkler Fallback"
 
@@ -36,7 +41,7 @@ ota:
 output:
   - platform: gpio
     pin: 
-      number: 8
+      number: 4
       mode:
         output: true
         open_drain: true
