@@ -1,0 +1,108 @@
+esphome:
+  name: esp32-led-controller
+  friendly_name: "Smart LED Strip"
+
+esp32:
+  board: esp32dev
+  framework:
+    type: esp-idf
+
+# Убедись, что блок api пустой и присутствует
+api:
+
+logger:
+
+ota:
+  - platform: esphome
+
+web_server:
+  port: 80
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  manual_ip:
+    static_ip: 192.168.100.2
+    gateway: 192.168.100.1
+    subnet: 255.255.255.0
+
+light:
+  - platform: esp32_rmt_led_strip
+    rgb_order: GRB
+    pin: GPIO13
+    num_leds: 300
+    chipset: WS2812
+    name: "Master Light" # Новое имя для HA
+    id: led_strip_300     # Новый внутренний ID
+    restore_mode: ALWAYS_OFF
+    
+    effects:
+      - addressable_lambda:
+          name: "White Runner"
+          update_interval: 20ms
+          lambda: |-
+            static int pos = 0;
+            it.all() = Color::BLACK; 
+            if (pos < it.size()) it[pos] = Color::WHITE;
+            pos++;
+            if (pos >= it.size()) pos = 0;
+
+      - addressable_lambda:
+          name: "White Comet"
+          update_interval: 25ms
+          lambda: |-
+            static float pos = 0.0;
+            for (auto led : it) led.fade_to_black(30); 
+            int i = (int)pos;
+            if (i < it.size()) it[i] = Color::WHITE;
+            pos += 0.6f;
+            if (pos >= (float)it.size()) pos = 0.0f;
+
+      - addressable_lambda:
+          name: "White Heartbeat"
+          update_interval: 30ms
+          lambda: |-
+            static float phi = 0.0;
+            float val = (sinf(phi) + 1.0f) / 2.0f;
+            uint8_t br = (uint8_t)(val * 255.0f);
+            it.all() = Color(br, br, br);
+            phi += 0.1f;
+
+      - addressable_lambda:
+          name: "Random Stars"
+          update_interval: 50ms
+          lambda: |-
+            for (auto led : it) led.fade_to_black(10);
+            if (esphome::random_float() < 0.1f) {
+                it[esphome::random_uint32() % it.size()] = Color::WHITE;
+            }
+
+      - addressable_lambda:
+          name: "Police Alert"
+          update_interval: 100ms
+          lambda: |-
+            static bool state = false;
+            it.all() = Color::BLACK;
+            state = !state;
+            int half = it.size() / 2;
+            if (state) {
+              for(int i=0; i<half; i++) it[i] = Color(255, 0, 0);
+            } else {
+              for(int i=half; i<it.size(); i++) it[i] = Color(0, 0, 255);
+            }
+
+      - addressable_lambda:
+          name: "Bouncing Dot"
+          update_interval: 20ms
+          lambda: |-
+            static int pos = 0;
+            static int dir = 1;
+            it.all() = Color::BLACK;
+            if (pos >= 0 && pos < it.size()) it[pos] = Color(0, 255, 100);
+            pos += dir;
+            if (pos >= it.size() - 1 || pos <= 0) dir *= -1;
+
+      - addressable_rainbow:
+          name: "Rainbow Slow"
+          speed: 10
+          width: 50
